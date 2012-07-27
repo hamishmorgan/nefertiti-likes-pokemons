@@ -159,27 +159,27 @@ def runByblo(inputFileName, outputDir,  bybloDir, bybloParams, verbose=False):
 		#~ print  "Input =", inputFileName
 		#~ print  "Output=", outputDir
 	
-	## move to BYblo directory, start timer and run it in a subprocess
-	startDir=abspath(os.getcwd())
-	logFile = open(os.devnull, 'w') if not verbose else None
-	os.chdir(bybloDir)
-	if verbose:
-		print "  Moved to " + os.getcwd()
-	
+	# start timer and run it in a subprocess
+	logFile = open('os.devnull', 'w') if not verbose else None
 	stime = datetime.datetime.now()
-	out = subprocess.call(abspath("./byblo.sh ") + " -i " + inputFileName + " -o " + outputDir +\
-		" "+ bybloParams, shell = True, stdout = logFile, stderr = logFile)
+
+	p = subprocess.Popen(
+		["./byblo.sh", "-i", inputFileName,  "-o", outputDir] 
+		+ bybloParams.split(' '),
+		shell = False, 
+		cwd=abspath(bybloDir),
+		stdout = logFile, 
+		stderr = logFile)
+	p.wait()		
+	
 	etime = datetime.datetime.now()
 	
 	if  logFile != None:
 		logFile.close()
-	os.chdir(startDir)
-	if verbose:
-		print "  Moved back to " + os.getcwd()
-	
+
 	## fail?
-	if(not out == 0):
-		print "   Byblo failed on input file: " + inputFileName + "\n   Fail Code: " + str(out)
+	if(not p.returncode == 0):
+		print "   Byblo failed on input file: " + inputFileName + "\n   Fail Code: " + str(p.returncode)
 		sys.exit()
 	
 	runTime = 1.0*(etime - stime).seconds / 3600
@@ -202,12 +202,6 @@ def generateStringsFiles(sampleFileNames, outputDir, bybloDir, reuse=[], verbose
 		for typeSuffix in [".entries", ".features", ".events", ".sims"]:
 			inputFileName = abspath(join(thesauriDir, basename(fileName)))
 			
-			## move to Byblo directory
-			startDir=abspath(os.getcwd())
-			os.chdir(bybloDir)
-			if verbose:
-				print "\n   Moved to " + os.getcwd()
-			
 			## convert both filtered and unfiltered versions
 			for filterSuffix in (["", ".filtered"] if typeSuffix != ".sims" else [""]):
 				sourceFileName = inputFileName+typeSuffix+filterSuffix
@@ -222,21 +216,24 @@ def generateStringsFiles(sampleFileNames, outputDir, bybloDir, reuse=[], verbose
 				
 					logFile = open(os.devnull, 'w') if not verbose else None
 					
-					out = subprocess.call(abspath("./tools.sh") + " unindex-" + typeSuffix[1:] \
-						+ " -i " + sourceFileName\
-						+ " -o " + sourceFileName + ".strings" \
-						+ (" -Xe "+inputFileName+".entry-index" if typeSuffix != ".features" else "") \
-						+ (" -Xf "+inputFileName+".feature-index" if typeSuffix != ".entries" else "") \
-						+ " -et JDBC",\
-						shell = True, stdout = logFile, stderr = logFile)
+					p = subprocess.Popen(["./tools.sh",
+						"unindex-" + typeSuffix[1:], 
+						"-i", sourceFileName,
+						"-o", sourceFileName + ".strings", 
+						"-Xe", (inputFileName+".entry-index" if typeSuffix != ".features" else ""), 
+						"-Xf", (inputFileName+".feature-index" if typeSuffix != ".entries" else ""), 
+						"-et", "JDBC"],
+						stdout = logFile, stderr = logFile, 
+						shell = False, cwd = bybloDir)
+					p.wait()
 					
 					if  logFile != None:
 						logFile.close()
-			
-			## move back to execution directory
-			os.chdir(startDir)
-			if verbose:
-				print "   Moved back to " + os.getcwd()
+						
+					if(not  p.returncode == 0):
+						print "   Byblo Tools failed with code: " + str(p.returncode)
+						sys.exit()
+	
 	print ">> end:generateStringsFiles"
 
 ##
