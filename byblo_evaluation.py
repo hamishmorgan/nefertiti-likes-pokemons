@@ -176,7 +176,6 @@ if __name__=='__main__':
 	etime = time.time()
 	print ">Execution took", etime-stime, "seconds"
 	
-	# pause at the end
-	raw_input()
+
 
 	    
