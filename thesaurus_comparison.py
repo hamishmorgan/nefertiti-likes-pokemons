@@ -14,8 +14,8 @@ overlap over their respective neighbours lists.
 
 __author__='Joanne Robert, Hamish Morgan'
 __version__='1.1.0'
-__copyright__ = ''
-__license__ = ''
+__copyright__ = 'TODO'
+__license__ = 'TODO'
 
 import time
 import string
@@ -33,8 +33,10 @@ def main():
 	# print "Thesaurus Comparison Tool v" + __version__
 
 	parser = argparse.ArgumentParser(
-		description='Uility for comparing thesauri produced by Byblo, in terms of the degree of overlap between their respective neighbours lists.',
-		formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+		description=
+'''Uility for comparing thesauri produced by Byblo, in terms of the degree 
+of overlap between their respective neighbours lists.''',
+		formatter_class=argparse.RawDescriptionHelpFormatter)
 
 	# verbose option
 	verbosity = parser.add_mutually_exclusive_group()
@@ -57,17 +59,25 @@ def main():
 		help='weighting scheme used to encode the importance of elements in each neighbours list')
 	parser.add_argument('-k', '--max-rank', 
 		type=int, dest='k', action='store', default=None, 
-		help='Maximum expected rank (for \'rank\' weighting scheme')
+		help='Maximum expected rank (for \'rank\' weighting scheme)')
 
 	parser.add_argument('-m', dest='measure', 
 		choices=__MEASURES__.keys(), 
 		default='cosine',
 		help='measure used to compute neighbour list similarity')
 		
-	parser.add_argument('--test', action='store_true', dest='runtest')	
+	parser.add_argument('--test', action='store_true', dest='runtest',
+		help='Run an evaluation of all measures and weighting schemes.')	
+	
+	parser.add_argument('--version', action='version', 
+		version=__version__)
+	
+	parser.epilog = 'Measures: \n\n  '
+	parser.epilog += '\n  '.join(['%s %s' % (m,f.__doc__) for m,f in __MEASURES__.items()])
+	parser.epilog += '\nWeightings: \n\n  '
+	parser.epilog += '\n  '.join(['%s %s' % (m,f.__doc__) for m,f in __WEIGHTINGS__.items()])
 		
 		
-	parser.
 	args = parser.parse_args()
 	
 	# Configure logging infrastructure
@@ -78,8 +88,11 @@ def main():
 	start_time = time.time()
 	
 	if args.runtest:
-		
-		test(args.files[0], log=log)
+		repeats=10000
+		interval=1000
+		for filep in args.files:
+			print 'Running test on \'%s:\':' % filep.name
+			test(filep, repeats=repeats, interval=interval, log=log)
 		
 	else:
 		sim_score2 = thesaurus_file_similarity(
@@ -106,9 +119,8 @@ def main():
 
 def cosine(list1, list2):
 	'''
-	Compute the cosine of the angle between the vectors defined by the 
-	sparse list of tuples. This is the measure origionally proposed by Lin
-	and Weeds.
+	Compute the cosine of the angle between the vectors. This is the measure 
+	origionally proposed by Lin and Weeds.
 	'''
 	dotproduct = 0
 	sqnorm1 , sqnorm2 = 0 , 0	
@@ -139,8 +151,9 @@ def cosine(list1, list2):
 
 def jaccard(list1, list2):
 	'''
-	Weight Jaccard similarity measure, calculates the similarity between 
-	lists as the intersection over the union of multisets.
+	Weighted-Jaccard similarity measure, calculates the similarity between 
+	lists as the intersection over the union of multisets. For traditional 
+	Jaccard use binary weighting.
 	'''
 	shared = 0
 	union = 0	
@@ -170,8 +183,9 @@ def jaccard(list1, list2):
 
 def average_precision(list1, list2):
 	'''
-	Compute the similarity between list1 and list2 as the precision averaged
-	across recall deltas as k-cutoff increases. 
+	Average Precision computes the similarity between two neighbours lists 
+	as the precision averaged across all recall values, for all head sublist 
+	of the first nieghbours.
 	'''
 	olist1 = sorted(list1, key=lambda x: -x[1])
 	E = {e for e,_ in list2}
@@ -185,9 +199,8 @@ def average_precision(list1, list2):
 
 def precision(list1, list2):
 	'''
-	Precision measures, computes similarity as the proportion of entries in
-	list1 that are also present in list2, where presence is weighted by 
-	neighbours score.
+	Precision measures, computes similarity as the (weighted) proportion of
+ 	entries in first neighbours list that are present in second. 
 	'''
 	shared = 0
 	list1sum = 0	
@@ -212,18 +225,16 @@ def precision(list1, list2):
 
 def recall(list1, list2):
 	'''
-	Recall measures, computes similarity as the proportion of entries in
-	list2 that are also present in list1, where presence is weighted by 
-	neighbours score.
+	Recall measures, computes similarity as the (weighted) proportion of 
+	entries in the second neighbours list that are also present in first.
 	'''
 	return precision(list2, list1)
 
 
 def fscore(list1, list2, beta=1):
 	'''
-	F-Beta score is the weighted hardmonic mean average of precision and 
-	recall. Harmonic rather than arithmetic since precision and recall are 
-	obstensibly rates, and we want the average rate over a fixed period.
+	F-Score is the hardmonic mean average of precision and recall. It 
+	provides a conservative over-all performance from thoses statistics.
 	'''
 	p = precision(list1, list2)
 	r = recall(list1, list2)
@@ -240,7 +251,8 @@ def fscore(list1, list2, beta=1):
 
 def score(neighs):
 	'''
-	No-op weighting that simply uses the similarity score
+	Uses the similarity score from the neighbours list as the weighting.
+	(The method origionally proposed by Dekan Lin.)
 	'''
 	return neighs
 
@@ -256,14 +268,16 @@ def rank(neighs):
 
 def inv_rank(neighs):
 	'''
-	Replace score with inverse-rank (1 over rank).
+	Replace score with the inverse-rank (1 over rank); i.e the largest score 
+	element will have weight 1/1, the next 1/2, then 1/3, 1/4 etc...
 	'''
 	return [(e, 1.0 / r) for e,r in rank(neighs)]
 
 
 def k_minus_rank(neighs, k=None):	
 	'''
-	Replace score with rank descending from max size k.
+	Replace score with rank descending from max size (k); i.e the i^th larges 
+	score neighbour, in a list of size k, will be given weighting of k - i.	
 	'''
 	if k == None: k = len(neighs)
 	assert k >= len(neighs)
@@ -272,7 +286,8 @@ def k_minus_rank(neighs, k=None):
 
 def binary(neighs):
 	'''
-	Replace score with 1; equally weight all positions in the neighburs list
+	Replace score with 1 and implicitely everything else takes score 0; has
+	the effect of equally weighting all positions in the neighburs list.
 	'''
 	return [(e, 1 if s > 0 else 0) for e,s in neighs]
 
@@ -335,7 +350,6 @@ def thesaurus_file_similarity(filep1, filep2,
 	misses = [0 for _ in xrange(1, len(neighs1) + len(neighs2) - (2 * len(hits)))]	
 	results = hits + misses
 
-	print hits
 	# Print a whole bunch of stats if verbose output is enabled
 	if log.isEnabledFor(logging.INFO):
 		log.info('Matched  %d / %d base entries' % (len(hits), len(results)))		
@@ -466,11 +480,10 @@ def degrade(neighs, N=0, repeats=1):
 		neighs[i] = (b,entry_order(nl)) 
 
 
-
 #
 #
 #	
-def test(filep, N=0, repeats=5000, interval=1000, log=logging.getLogger()): 
+def test(filep, repeats=5000, interval=1000, log=logging.getLogger()): 
 	'''
 	Perform a test to evaluate how a particular measure performs as the 
 	thesaurus degrades away from the one provided.
