@@ -1,4 +1,4 @@
-#!/usr/bin/env python -c
+#!/usr/bin/env python
 #
 # Byblo Thesaurus Comparison Tool
 #
@@ -65,10 +65,7 @@ of overlap between their respective neighbours lists.''',
 		choices=__MEASURES__.keys(), 
 		default='cosine',
 		help='measure used to compute neighbour list similarity')
-		
-	parser.add_argument('--test', action='store_true', dest='runtest',
-		help='Run an evaluation of all measures and weighting schemes.')	
-	
+
 	parser.add_argument('--version', action='version', 
 		version=__version__)
 	
@@ -86,27 +83,19 @@ of overlap between their respective neighbours lists.''',
 	log.setLevel(args.loglevel)
 
 	start_time = time.time()
-	
-	if args.runtest:
-		repeats=10000
-		interval=1000
-		for filep in args.files:
-			print 'Running test on \'%s:\':' % filep.name
-			test(filep, repeats=repeats, interval=interval, log=log)
-		
-	else:
-		sim_score2 = thesaurus_file_similarity(
-			args.files[0], args.files[1], 
-			measure=__MEASURES__[args.measure], 
-			weighting=__WEIGHTINGS__[args.weighting], 
-			log=log, maxrank=args.k)	
-		print sim_score2
-	
+
+	(mu, sigma) = thesaurus_file_similarity(
+		args.files[0], args.files[1], 
+		measure=__MEASURES__[args.measure], 
+		weighting=__WEIGHTINGS__[args.weighting], 
+		log=log, maxrank=args.k)	
+	print 'Similarity = %f +/- %f (@95%%)' % (mu, sigma * 1.959963984540054)
+
 	end_time = time.time()
 	
 	if log.isEnabledFor(logging.INFO):
 		log.info("All done in %f seconds." % (end_time - start_time))
-	
+
 
 #################################################################
 
@@ -144,9 +133,10 @@ def cosine(list1, list2):
 	while j < len(list2):
 		sqnorm2 += list2[j][1] ** 2
 		j += 1
-	if sqnorm1 <= 0 or sqnorm2 <= 0:
-		return 0
-	return dotproduct / math.sqrt(sqnorm1 * sqnorm2)
+	normaliser =  math.sqrt(sqnorm1 * sqnorm2) \
+		if sqnorm1 > 0 and sqnorm2 > 0 else 0
+	
+	return (dotproduct, normaliser)
 
 
 def jaccard(list1, list2):
@@ -176,25 +166,23 @@ def jaccard(list1, list2):
 	while j < len(list2):
 		union += list2[j][1]
 		j += 1
-	if union == 0:
-		return 0
-	return 1.0 * shared / union
+	return (shared, union)
 
 
 def average_precision(list1, list2):
 	'''
 	Average Precision computes the similarity between two neighbours lists 
 	as the precision averaged across all recall values, for all head sublist 
-	of the first nieghbours.
+	of the first nieghbours. Can be thought of as the area under the 
+	precision / recall curve for all ranked cut-offs.
 	'''
-	olist1 = sorted(list1, key=lambda x: -x[1])
-	E = {e for e,_ in list2}
+	list1_ranked = score_order(list1)
+	list2_entries = {e for e,_ in list2}
 	total = 0
-	for k in xrange(0,len(olist1)):
-		if len(E.intersection(olist1[k])) == 1:
-			sublist1 = entry_order(olist1[:k+1])
-			total += precision(sublist1, list2)
-	return total  / len(list2)
+	for k,_ in enumerate(list1_ranked):
+		if list1_ranked[k][0] in list2_entries:
+			total += precision(entry_order(list1_ranked[:k+1]), list2)
+	return (total, len(list2))
 
 
 def precision(list1, list2):
@@ -219,9 +207,7 @@ def precision(list1, list2):
 	while i < len(list1):
 		list1sum += list1[i][1]
 		i += 1
-	if list1sum == 0:
-		return 0
-	return 1.0 * shared / list1sum
+	return (shared, list1sum)
 
 def recall(list1, list2):
 	'''
@@ -238,10 +224,22 @@ def fscore(list1, list2, beta=1):
 	'''
 	p = precision(list1, list2)
 	r = recall(list1, list2)
-	if p + r == 0:
-		return 0
+
+	p = 1.0 * p[0] / p[1] if p[1] else 0
+	r = 1.0 * r[0] / r[1] if r[1] else 0
+	
 	beta_sq = (beta ** 2)
-	return (beta_sq + 1) * p * r / (beta_sq * p + r)
+	return ((beta_sq + 1) * p * r / (beta_sq * p + r), 1) \
+		if p + r else (0,1)
+
+
+
+def random_measure(list1, list2):
+	'''
+	A measure that simply returns a uniform random number in the range [0,1]
+	'''
+	return (random.random(),1)
+	
 
 
 # ======================================
@@ -274,6 +272,13 @@ def inv_rank(neighs):
 	return [(e, 1.0 / r) for e,r in rank(neighs)]
 
 
+def random_weighting(neighs):
+	'''
+	Replace score with a random number sampled uniformly from the range [0,1]
+	'''
+	return [(e,random.random()) for e,_ in neighs]
+
+
 def k_minus_rank(neighs, k=None):	
 	'''
 	Replace score with rank descending from max size (k); i.e the i^th larges 
@@ -290,6 +295,76 @@ def binary(neighs):
 	the effect of equally weighting all positions in the neighburs list.
 	'''
 	return [(e, 1 if s > 0 else 0) for e,s in neighs]
+
+
+
+# ======================================
+# Aggregation methods
+# ======================================
+
+from numpy import prod
+from numpy import exp
+from numpy import log
+
+
+def ratio_mean(X, p=1, micro=False):
+	'''
+	Mean that supports arbitrary power generalisation for both micro and macro
+	averaging a list of ratios.
+	
+	Means of power <= 0 are undefined for list containing zero elements. As a
+	work around zero elements are ignored
+	'''
+	if p == float('-inf'):
+		return min(1.0 * n / d for n,d in X if d)
+	elif p == float('inf'):
+		return max(1.0 * n / d for n,d in X if d)
+	elif p == 0:  # lim p->0 (geometric mean)
+		if micro: # micro-average
+			denom = sum(d for _,d in X if d>0)
+			if denom == 0: return 0
+			nom =  sum(d * log(1.0 * n / d) for n,d in X if d>0 and n>0)
+			mu = exp( nom  / denom ) 
+			corr = float(sum(1 for n,d in X if d>0 and n>0)) / len(X)
+			return (corr) * mu
+		else: # macro-average
+			N = len(X)
+			N1 = sum(1 for n,d in X if d>0 and n>0)
+			if N1 == 0:
+				return 0
+			mu = prod([1.0 * n / d for n,d in X if d>0 and n>0]) ** (1.0 / N1)
+			corr = float(N1) / N			
+			return corr * mu
+	elif p < 0: # (including the harmonic mean at p=-1)
+		if micro: # micro-average
+			denom = float(sum(d for n,d in X if d>0 and n>0))
+			if denom == 0: return 0
+			nom = sum(float(d) * ((float(n) / float(d)) ** p ) for n,d in X if d>0 and n>0)
+			if nom == 0: return 0
+			corr = float(sum(1 for n,d in X if d>0 and n>0)) / sum(1 for n,d in X if d>0)
+			return (corr) * (float( nom / denom ) ** (1.0 / p))
+		else: # macro-average
+			denom = sum(1 for n,d in X if d>0 and n>0)
+			if denom == 0: return 0
+			nom = sum((1.0 * n / d) ** p for n, d in X if d>0 and n>0)
+			if nom == 0: return 0
+			corr = float(denom) / len(X) 
+		 	return corr * (( nom / denom ) ** (1.0 / p))
+	else: # for other p: 0 > p > inf 
+		if micro: # micro-average
+			denom = float(sum(d for n,d in X if d))
+			if denom == 0: return 0
+			nom = sum(float(d) * ((float(n) / float(d)) ** p ) for n,d in X if d and n)
+			if nom == 0: return 0
+			mu = float( nom / denom ) ** float(1.0 / float(p))
+			corr = float(sum(1 for n,d in X if d>0 and n>0)) / len(X)
+			return corr * mu 
+		else: # macro-average
+			denom = len(X)
+			if denom == 0: return 0
+			nom = sum((1.0 * n / d) ** p for n, d in X if d and n)
+			if nom == 0: return 0
+		 	return ( nom / denom ) ** (1.0 / p)
 
 
 # ======================================
@@ -339,39 +414,47 @@ def thesaurus_file_similarity(filep1, filep2,
 	log.info('-----------------------------------------')
 	
 	# Calculate the similarities
-	sims = thesaurus_similarity(neighs1, neighs2, 
+	(mu, sigma) = thesaurus_similarity(neighs1, neighs2, 
 		measure=measure, weighting=weighting, maxrank=maxrank, log=log)
-
-	log.info('-----------------------------------------')
-
-	# thesaurus_similarity only returns scores where matchin base entries 
-	# where found so need to add misses
-	hits = [s for _,s in sims]
-	misses = [0 for _ in xrange(1, len(neighs1) + len(neighs2) - (2 * len(hits)))]	
-	results = hits + misses
-
-	# Print a whole bunch of stats if verbose output is enabled
-	if log.isEnabledFor(logging.INFO):
-		log.info('Matched  %d / %d base entries' % (len(hits), len(results)))		
-		log.info('Similarity Range = [%f, %f]' % (
-			min(hits) if len(misses) == 0 else 0,
-			max(hits) if len(hits) > 0 else 0))
-
-		log.info('Hits Mean Similarity = %f +/- %f (@95%%)' % (
-			mean(hits), stddev(hits) * 1.959963984540054))
-
-		log.info('Mean Similarity = %f +/- %f (@95%%)' % (
-			mean(results), stddev(results) * 1.959963984540054))
-			
-		log.info('Best matches:\n\t' + 
-			string.join(['%s => %f' % (e,s) 
-				for e,s in score_order(sims)[0:20]], '\n\t'))
 	
-	return mean(results)
-
+	return (mu, sigma)
 
 
 def thesaurus_similarity(neighs1, neighs2, 
+		measure=cosine, weighting=k_minus_rank, maxrank=None,
+		log=logging.getLogger(), power=1, micro=True):
+	'''
+	'''
+	# Calculate the similarities
+	sims = thesaurus_similarities(neighs1, neighs2, 
+		measure=measure, weighting=weighting, maxrank=maxrank, log=log)
+	
+	return (ratio_mean([x for e,x in sims], p=power, micro=micro), 0)
+	
+	# 	
+	# # Print a whole bunch of stats if verbose output is enabled
+	# if log.isEnabledFor(logging.INFO):
+	# 	log.info('Matched  %d / %d base entries' % (len(hits), len(results)))		
+	# 	log.info('Similarity Range = [%f, %f]' % (
+	# 		min(hits) if len(misses) == 0 else 0,
+	# 		max(hits) if len(hits) > 0 else 0))
+	# 
+	# 	log.info('Hits Mean Similarity = %f +/- %f (@95%%)' % (
+	# 		mean(hits), stddev(hits) * 1.959963984540054))
+	# 
+	# 	log.info('Mean Similarity = %f +/- %f (@95%%)' % (
+	# 		mean(results), stddev(results) * 1.959963984540054))
+	# 		
+	# 	log.info('Best matches:\n\t' + 
+	# 		string.join(['%s => %f' % (e,s) 
+	# 			for e,s in score_order(sims)[0:20]], '\n\t'))
+	# 
+	# return (mean(results), stddev(results))
+
+
+
+
+def thesaurus_similarities(neighs1, neighs2, 
 		measure=cosine, weighting=k_minus_rank, maxrank=0,
 		log=logging.getLogger()):
 	'''
@@ -389,27 +472,44 @@ def thesaurus_similarity(neighs1, neighs2,
 	sims = []
 	i,j = 0,0
 	
+	
 	while i < len(neighs1) and j < len(neighs2) :
 		if neighs1[i][0] == neighs2[j][0]:
 			if log.isEnabledFor(logging.DEBUG):	
 				log.debug('entry: %s' % neighs1[i][0])			
 			
 			sim = neighbours_list_similarity(neighs1[i][1], neighs2[j][1],
-				measure=measure, weighting=weighting, maxrank=maxrank)
-			
+				measure=measure, weighting=weighting, maxrank=maxrank)			
 			sims.append( (neighs1[i][0], sim) )			
 			i += 1
 			j += 1
 		elif neighs1[i][0] < neighs2[j][0]:
+			sim = neighbours_list_similarity(neighs1[i][1], [],
+				measure=measure, weighting=weighting, maxrank=maxrank)
+			sims.append( (neighs1[i][0], sim) )	
 			i += 1
 		else: #if th1[i][0] > th2[j][0]:
+			sim = neighbours_list_similarity([], neighs2[j][1],
+				measure=measure, weighting=weighting, maxrank=maxrank)			
+			sims.append( (neighs2[j][0], sim) )			
 			j += 1
 		if log.isEnabledFor(logging.INFO) and max(i,j) % 1000 == 0: 
 			log.info('Calculated %d similarities. (%.1f%% complete)' % (
 				len(sims), 100.0 * (i+j) / (len(neighs1)+len(neighs2))))
+	while i < len(neighs1):
+		sim = neighbours_list_similarity(neighs1[i][1], [],
+			measure=measure, weighting=weighting, maxrank=maxrank)
+		sims.append( (neighs1[i][0], sim) )	
+		i += 1
+	while j < len(neighs2):
+		sim = neighbours_list_similarity([], neighs2[j][1],
+			measure=measure, weighting=weighting, maxrank=maxrank)			
+		sims.append( (neighs2[j][0], sim) )			
+		j += 1
 	if log.isEnabledFor(logging.INFO):
 		log.info('Calculated %d similarities. (%.1f%% complete)' % (
 			len(sims), 100.0))
+	
 	return sims
 
 
@@ -421,9 +521,16 @@ def neighbours_list_similarity(list1, list2,
 	if weighting == k_minus_rank:
 		kwargs['k'] = max(maxrank, len(list1), len(list2))
 
-	wlist1 = weighting(sorted(list1), **kwargs)
-	wlist2 = weighting(sorted(list2), **kwargs)	
+	# Re-weighting the vectors
+	if list1 == list2:
+		wlist1 = weighting(sorted(list1), **kwargs)	
+		wlist2 = wlist1
+	else:
+		wlist1 = weighting(sorted(list1), **kwargs)		
+		wlist2 = weighting(sorted(list2), **kwargs)
+	
 	sim = measure(wlist1, wlist2)
+	
 	if log.isEnabledFor(logging.DEBUG):	
 		log.debug('reweighting 1 (entry:before=>after): %s' % 
 			['%s:%.3f=>%.3f' % (e,x,y) for (e,x),(_,y) in zip(sorted(list1), wlist1)])
@@ -461,78 +568,24 @@ def extract_terms(filep, log=logging.getLogger()):
 	return terms
 
 
-# ==============================================
-# Test various measure and weighting combinations
-# ==============================================
-
-def degrade(neighs, N=0, repeats=1):
-	for i,(b,nl) in enumerate(neighs):
-		neighs[i] = (b,score_order(nl)) 
-	for _,lst in neighs:
-		for _ in xrange(1,repeats):
-			i = random.randint(0, max(len(lst)-1, N))
-			j = i + 1
-			if j < len(lst):
-				(lst[i] , lst[j]) = ((lst[i][0], lst[j][1]), (lst[j][0], lst[i][1]))
-			elif j == len(lst):
-				lst[i] = (hex(random.randint(1,2**32))[2:], lst[i][1] * 0.9)
-	for i,(b,nl) in enumerate(neighs):
-		neighs[i] = (b,entry_order(nl)) 
-
-
-#
-#
-#	
-def test(filep, repeats=5000, interval=1000, log=logging.getLogger()): 
-	'''
-	Perform a test to evaluate how a particular measure performs as the 
-	thesaurus degrades away from the one provided.
-	'''
-	# Laod the neighbours lists and sort by score descending
-	neighs1 = extract_terms(filep, log=log)
-	neighs1 = [ (b,sorted(nl,key=lambda x: -x[1])) for b,nl in neighs1]
-	neighs1.sort()
-
-	# 2. Take an exact copy of the neighbours list
-	neighs2 = copy.deepcopy(neighs1)
-	
-	# Print the table headers
-	sys.stdout.write('%7s' % '')
-	for w in __WEIGHTINGS__.keys():
-		for _ in __MEASURES__.keys():	
-			sys.stdout.write('%8s' % w[:7])
-	print
-	sys.stdout.write('%7s' % 'repeat')
-	for _ in __WEIGHTINGS__.keys():
-		for m in __MEASURES__.keys():	
-			sys.stdout.write('%8s' % m[:7])
-	print
-			
-	# 3. For each iteration degrade the nieghbours list slightly by making
-	#    random swaps. A swap involves reversing their position and updating 
-	#	 the score to reflect the change. 	
-	r = 0
-	while r < repeats:
-		sys.stdout.write('%7d' % (r))
-		for w in __WEIGHTINGS__.keys():
-			for m in __MEASURES__.keys():	
-				sims = thesaurus_similarity(neighs1, neighs2, log=log,
-					weighting=__WEIGHTINGS__[w], measure=__MEASURES__[m])
-				sys.stdout.write('%8.3f' % mean([s for _,s in sims])),
-		print
-		degrade(neighs2, N=100, repeats=interval)
-		r += interval
-	#
-
-
 
 #################################################################
 
-__MEASURES__ = {'cosine':cosine, 'jaccard':jaccard, 
-		'precision':precision, 'recall':recall, 'fscore':fscore,
-		'ap':average_precision}
-__WEIGHTINGS__ = {'score':score, 'rank':k_minus_rank, 
-		'invrank':inv_rank, 'binary':binary}
+__MEASURES__ = {
+		'cosine':cosine, 
+		'jaccard':jaccard, 
+		'precision':precision, 
+		'recall':recall, 
+		'fscore':fscore,
+		'ap':average_precision
+		}
+__WEIGHTINGS__ = {
+		'score':score, 
+		'rnk':k_minus_rank,
+		'invrank':inv_rank, 
+		'binary':binary,
+		# 'rnd':random_weighting
+		}
 	
 __DEFAULT_MEASURE__ = cosine
 __DEFAULT_WEIGHTING__ = score
