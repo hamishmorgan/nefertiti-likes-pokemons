@@ -1,4 +1,43 @@
-#!/usr/bin/env python -c
+#~ !/usr/bin/env python -c
+
+#~ Copyright (c) 2012, University of Sussex
+#~ All rights reserved.
+
+#~ Redistribution and use in source and binary forms, with or without 
+#~ modification, are permitted provided that the following conditions are met:
+
+ #~ * Redistributions of source code must retain the above copyright notice, this
+   #~ list of conditions and the following disclaimer.
+
+ #~ * Redistributions in binary form must reproduce the above copyright notice, 
+   #~ this list of conditions and the following disclaimer in the documentation 
+   #~ and/or other materials provided with the distribution.
+
+ #~ * Neither the name of the University of Sussex nor the names of its 
+   #~ contributors may be used to endorse or promote products  derived from this
+   #~ software without specific prior written permission.
+
+#~ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
+#~ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+#~ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#~ DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY DIRECT, 
+#~ INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+#~ BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+#~ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
+#~ OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+#~ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, 
+#~ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+#~ -----------------------------------------------------------------------------
+__author__ = "Joanne Robert"
+__copyright__ = "Copyright (c) 2012, University of Sussex"
+__credits__ = ["Joanne Robert", "Hamish Morgan"]
+__license__ = "3-clause BSD"
+__version__ = "1.0.0"
+__maintainer__ = "Joanne Robert"
+__email__ = "jr317@sussex.ac.uk"
+__status__ = "Development"
+#~ -----------------------------------------------------------------------------
 
 import os, sys, argparse, subprocess
 import datetime, random, string
@@ -12,29 +51,28 @@ from os.path import\
 	join as join, \
 	abspath as abspath, \
 	isfile as isfile
-from string import find as contains
 
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 from scipy import *
 from scipy import optimize, stats, special
 
-#################################################################
 
 ## Produces a string that gives information about size (percentage) used and can be in a file name
 ## @return formatted pct string
 def sizeSubstring(pct):
-	return '%' + string.replace(str(pct), '.', '_') if pct != 100 else ""
+	return '%' + string.replace(str(pct), '.', '_')
 
 ## Produces a string that gives information about parameters used and can be in a file name
 ## @return formatted parameters string
 def paramSubstring(str):
 	return '#' + string.replace(str, ' ', '_')
+	
 ## Extracts from a file name the substrings produced by the 2 methods above
 ## @return string reflecting size and parameters chosen
 def getPctParamSubstring(name):
 	end = basename(name)
 	index = string.find(end, '%')
-	return "..." + (end[index:] if index != -1 else "%100" + (end[string.find(end, '#'):] if '#' in end else ""))
+	return "..." + end[index:]
 
 
 ## Displays Byblo help to give information about the possible parameter strings, then allows the user to choose
@@ -114,7 +152,7 @@ def eventsStats(inputFileName, outputDir, percentList=[100], reuse=[], verbose=F
 		sampleFileNames.append(sampleFileName)
 		
 		## determine and store statistics file name for output
-		statsFileName = join(statsDir, basename(sampleFileName) + ".stats.events")
+		statsFileName = join(statsDir, basename(sampleFileName) + (sizeSubstring(pct) if pct == 100 else '') +  ".stats.events")
 		statsFileNames.append(statsFileName)
 		if "events_stats" in reuse and isfile(statsFileName):
 			if verbose:
@@ -194,7 +232,8 @@ def bybloStats(sampleFileNames, outputDir, bybloDir, paramList=[], reuse=[], ver
 	for fileName in sampleFileNames:
 		for paramStr in paramList:
 			## determine and store statistics file name for output
-			statsFileName = join(statsDir, basename(fileName) + paramSubstring(paramStr) + ".stats.byblo")
+			fullInputFileStr = sizeSubstring(100.0) if string.find(fileName, '%') == -1 else '' 
+			statsFileName = join(statsDir, basename(fileName) + fullInputFileStr + paramSubstring(paramStr) + ".stats.byblo")
 			statsFileNames.append(statsFileName)
 			
 			if "byblo_stats" in reuse and isfile(statsFileName):
@@ -209,7 +248,7 @@ def bybloStats(sampleFileNames, outputDir, bybloDir, paramList=[], reuse=[], ver
 					abspath(bybloDir), paramStr, verbose)
 				
 				## write statistics
-				resultFileName = join(thesauriDir, basename(fileName) + paramSubstring(paramStr))
+				resultFileName = join(thesauriDir, basename(fileName) + fullInputFileStr + paramSubstring(paramStr))
 				statsFile = open(statsFileName, 'w')
 				
 				for suffix in [".sims.neighbours",".events.filtered",".entries.filtered"]:
@@ -232,7 +271,8 @@ def runByblo(inputFileName, outputDir,  bybloDir, bybloParams, verbose=False):
 	
 	## move to Byblo directory and temporary rename input file (so that output files names reflect the parameters used)
 	startDir=abspath(os.getcwd())
-	tmpInputFileName = inputFileName + paramSubstring(bybloParams)
+	fullInputFileStr = sizeSubstring(100.0) if string.find(inputFileName, '%') == -1 else '' 
+	tmpInputFileName = inputFileName + fullInputFileStr + paramSubstring(bybloParams)
 	os.chdir(bybloDir)
 	if verbose:
 		print "  Moved to " + os.getcwd()
@@ -244,17 +284,19 @@ def runByblo(inputFileName, outputDir,  bybloDir, bybloParams, verbose=False):
 	out = subprocess.call(abspath("./byblo.sh ") + " -i " + tmpInputFileName + " -o " + outputDir +\
 		" "+ bybloParams, shell = True, stdout = logFile, stderr = logFile)
 	etime = datetime.datetime.now()
+	
+	## whatever the result, give the input file its name back file and close the log
+	os.system("mv " + tmpInputFileName + " " + inputFileName)
 	if logFile != None:
 		logFile.close()
 	if(not out == 0):
 		print "   Byblo failed on input file: " + tmpInputFileName + "\n   Fail Code: " + str(out)
 		sys.exit()
 	
-	## move back to initial directory and give the input file its name back
+	## move back to initial directory
 	os.chdir(startDir)
 	if verbose:
 		print "  Moved back to " + os.getcwd()
-	os.system("mv " + tmpInputFileName + " " + inputFileName)
 	
 	runTime = 1.0*(etime - stime).seconds
 	if verbose:
@@ -272,7 +314,8 @@ def generateStringsFiles(sampleFileNames, paramList, outputDir, bybloDir, reuse=
 	for fileName in sampleFileNames:
 		for paramStr in [paramSubstring(s) for s in paramList]:
 			for typeSuffix in [".entries", ".features", ".events", ".sims"]:
-				inputFileName = abspath(join(thesauriDir, basename(fileName)))
+				fullInputFileStr = sizeSubstring(100.0) if string.find(fileName, '%') == -1 else '' 
+				inputFileName = abspath(join(thesauriDir, basename(fileName)) + fullInputFileStr)
 				
 				## move to Byblo directory
 				startDir=abspath(os.getcwd())
@@ -280,8 +323,9 @@ def generateStringsFiles(sampleFileNames, paramList, outputDir, bybloDir, reuse=
 				if verbose:
 					print "\n   Moved to " + os.getcwd()
 				
-				## convert both filtered and unfiltered versions
-				for filterSuffix in (["", ".filtered"] if typeSuffix != ".sims" else [""]):
+				## convert both filtered (when it exists and hasn't already been converted) and unfiltered versions
+				hasFiltered = isfile(inputFileName+paramStr+typeSuffix)
+				for filterSuffix in ([''] if typeSuffix == ".sims" else (['', '.filtered']) if hasFiltered else ['.filtered'] ):
 					sourceFileName = inputFileName + paramStr + typeSuffix + filterSuffix
 					
 					## ...but only if needed
@@ -341,7 +385,7 @@ def decorateGraph(subplot, title="", xLabel="", yLabel="", yLabelPos=None, legen
 ## Offers a selection of fitting methods and model functions that allow to model some of the relations that exist within
 ## the data handled here
 ## @return model data produced with the model function, method name, associated colour (for graphs)
-def fittingMethod(xdata, ydata, method, initialParameters=None):
+def fittingMethod(xdata, ydata, method, initialParameters=None, verbose=False):
 	colors = ["red", "green", "blue", "purple", "orange", "magenta", "cyan", "limegreen", "gold"]
 	## default return values
 	fit, params, label, color = [], [], "", ""
@@ -428,7 +472,7 @@ def fittingMethod(xdata, ydata, method, initialParameters=None):
 	## leastsq on quadratic
 	elif method == 7:
 		label = "leastsq on quadratic"
-		pinit = [1.0]  if initialParameters == None else initialParameters
+		pinit = [1., 1., 1., 1.]  if initialParameters == None else initialParameters
 		out = optimize.leastsq(quadraticErr, pinit, args=(xdata, ydata), full_output=1)
 		params = out[0]
 		fit = quadratic(params, xdata)
@@ -442,7 +486,8 @@ def fittingMethod(xdata, ydata, method, initialParameters=None):
 		covar = out[1] 
 		fit = nlogn(params, xdata)
 	
-	print "      Fitting with ["+str(method)+"] " + label
+	if verbose:
+		print "      Fitting with ["+str(method)+"] " + label
 	if method <6:
 		return fit, label, colors[method]
 	else:
@@ -463,7 +508,8 @@ def generateHistograms(sampleFileNames, paramList, outputDir, reuse=[], verbose=
 	for fileName in sampleFileNames:
 		for paramStr in [paramSubstring(s) for s in paramList]:
 			for suffix in ['.entries', '.features', '.events', '.sims']:
-				fileBaseName = basename(fileName) + paramStr + suffix
+				fullInputFileStr = sizeSubstring(100.0) if string.find(fileName, '%') == -1 else '' 
+				fileBaseName = basename(fileName) + fullInputFileStr + paramStr + suffix
 				if "graphs" in reuse and isfile(join(graphsDir, "Histogram-" + fileBaseName + ".pdf")):
 					if verbose:
 						print "   Reusing histogram for " + getPctParamSubstring(fileBaseName)
@@ -487,19 +533,23 @@ def createOccurenceHistogram(label, fileName, thesauriDir, graphsDir, verbose=Fa
 	XBASE, YBASE = 2, 10
 	LIMITS = [1, 2.0 ** 64]
 	reducedFileSuffix = ".filtered"
-	bins, hist = extractRowsValues(join(thesauriDir, fileName), LIMITS, [XBASE, YBASE], verbose=verbose)
-	reducedBins, reducedHist = extractRowsValues(join(thesauriDir, fileName + reducedFileSuffix), LIMITS, [XBASE, YBASE], verbose=verbose)
+	hasFiltered = isfile(join(thesauriDir, fileName))
+	bins, hist = extractRowsValues(join(thesauriDir, fileName + (reducedFileSuffix if not hasFiltered else '')), \
+		LIMITS, [XBASE, YBASE], verbose=verbose)
+	if hasFiltered:
+		reducedBins, reducedHist = extractRowsValues(join(thesauriDir, fileName + reducedFileSuffix), 	
+			LIMITS, [XBASE, YBASE], verbose=verbose)
 	
 	## figure set up
 	if not cut:
-		f, (normScale, logScale, fitNormScale, fitLogScale) = pl.subplots(4, 1)
+		f, (linearScale, logScale, fitLinearScale, fitLogScale) = pl.subplots(4, 1)
 		f.set_size_inches(8.3, 11.7) ## set figure size to A4
 		f.subplots_adjust(left=0.15, right=0.85, wspace=None, hspace=0.4) ## add margins
 		f.suptitle('Occurence histogram for  ' + fileName[string.rfind(fileName, '.'):] + ' file', fontsize=14, fontweight='bold')
 	else:
 		individualPlots = [pl.subplots(1, 1) for x in xrange(4)]
 		figures = [p[0] for p in individualPlots]
-		normScale, logScale, fitNormScale, fitLogScale = [p[1] for p in individualPlots]
+		linearScale, logScale, fitLinearScale, fitLogScale = [p[1] for p in individualPlots]
 		for f in figures:
 			f.set_size_inches(8.3, 5.8) ## set figure size to A5
 			f.subplots_adjust(left=0.15, right=0.85, wspace=None, top=0.8, bottom=0.2) ## add margins
@@ -509,34 +559,49 @@ def createOccurenceHistogram(label, fileName, thesauriDir, graphsDir, verbose=Fa
 	
 	## REPRESENT THE DATA
 	## linear bar chart of 99% of the mass
-	noThreshold = normScale.bar(bins[:-1], hist, width=bins[1:] - bins[:-1], color="orange", label="No threshold")
-	withThreshold = normScale.bar(reducedBins[:-1], reducedHist, width=reducedBins[1:] - bins[:-1], color="red", label="With threshold")
+	noThreshold = linearScale.bar(bins[:-1], hist, width=bins[1:] - bins[:-1], color="orange", label="No threshold")
+	if hasFiltered:
+		withThreshold = linearScale.bar(reducedBins[:-1], reducedHist, width=reducedBins[1:] - bins[:-1], \
+			color="red", label="With threshold")
 	## log-log line
 	noThreshold = logScale.loglog(bins[:-1], hist, 'x-', color="orange", label="No threshold")
-	withThreshold = logScale.loglog(reducedBins[:-1], reducedHist, 'x-', color="red", label="With threshold")
+	if hasFiltered:
+		withThreshold = logScale.loglog(reducedBins[:-1], reducedHist, 'x-', color="red", label="With threshold")
 	
 	pp = max([i for i,x in enumerate((np.cumsum(hist) / sum(hist)) < 0.99) if x])
-	decorateGraph(normScale, 'Norm scale', "number of occurences", "frequency", yLabelPos, "upper right", largeY=True)
-	decorateGraph(logScale, 'Log scale', "number of occurences", "frequency", yLabelPos, "upper right")
-	normScale.set_xlim(xmax=XBASE ** max(pp, XBASE ** 2))
+	decorateGraph(linearScale, 'Linear scale', "number of occurences", "frequency", \
+		yLabelPos, "upper right" if hasFiltered else None, largeY=True)
+	decorateGraph(logScale, 'Log scale', "number of occurences", "frequency", yLabelPos, "upper right" if hasFiltered else None)
+	linearScale.set_xlim(xmax=XBASE ** max(pp, XBASE ** 2))
 	
 	## FIT THE DATA
 	## data
 	removeZeroValues = lambda L, L2: [L[i] for i in xrange(len(L)) if L[i]>0 and L2[i]>0]
 	x, y = removeZeroValues(bins[:-1], hist), removeZeroValues(hist, bins[:-1])
-	fitNormScale.fill_between(x, y, 0, color="lightgrey")
+	fitLinearScale.fill_between(x, y, 0, color="lightgrey")
 	fitLogScale.fill_between(x, 1e-50, y, color="lightgrey")
-	## fit functions
-	#!>>MODIFY HERE THE METHODS TO USE<<!#
-	methods = [1, 3, 4]
-	for m in methods:
-		mFit, mLabel, mColor= fittingMethod(x, y, m)
-		fitNormScale.plot(x, mFit, label=mLabel, color=mColor)
-		fitLogScale.loglog(x, mFit, label=mLabel, color=mColor)
+	
+	## fit functions (if enough values)
+	if len(x) > 4:
+		#!>>MODIFY HERE THE METHODS TO USE<<!#
+		methods = [1, 3, 4]
+		for m in methods:
+			mFit, mLabel, mColor= fittingMethod(x, y, m, verbose=verbose)
+			fitLinearScale.plot(x, mFit, label=mLabel, color=mColor)
+			fitLogScale.loglog(x, mFit, label=mLabel, color=mColor)
+	else:
+		infoString = "(At least 5 values required to fit a model.)" 
+		fitLinearScale.text(0.7, 0.1, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = fitLinearScale.transAxes, fontsize=10, color="firebrick")
+		fitLogScale.text(0.7, 0.1, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = fitLogScale.transAxes, fontsize=10, color="firebrick")
 		
-	decorateGraph(fitNormScale, 'Norm scale - zipfian model', "number of occurences", "frequency",  yLabelPos, "upper right", data=(x, y), largeY=True)
-	decorateGraph(fitLogScale, 'Log scale - zipfian model', "number of occurences", "frequency", yLabelPos, "upper right", data=(x, y))
-	fitNormScale.set_xlim(xmax=XBASE** max(pp, XBASE ** 2))
+		
+	decorateGraph(fitLinearScale, 'LInear scale - zipfian model', "number of occurences", "frequency", \
+		yLabelPos, "upper right", data=(x, y), largeY=True)
+	decorateGraph(fitLogScale, 'Log scale - zipfian model', "number of occurences", "frequency", \
+		yLabelPos, "upper right", data=(x, y))
+	fitLinearScale.set_xlim(xmax=XBASE** max(pp, XBASE ** 2))
 	
 	if not cut:
 		f.savefig(join(graphsDir, 'Histogram-' + fileName + '.pdf'))
@@ -544,7 +609,8 @@ def createOccurenceHistogram(label, fileName, thesauriDir, graphsDir, verbose=Fa
 		for i, f in enumerate([p[0] for p in individualPlots]):
 			f.savefig(join(graphsDir, 'Histogram-' + fileName + '-' + str(i+1) + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 
 
 ## Creates a histogram showing the distribution of similarity scores that appear in a thesaurus
@@ -555,8 +621,12 @@ def createSimilarityHistogram(label, fileName, thesauriDir, graphsDir, verbose=F
 	LIMITS = [0, 1]
 	step = 0.01
 	reducedFileSuffix = ".neighbours"
-	bins, hist = extractRowsValues(join(thesauriDir, fileName), LIMITS, [XBASE, YBASE], step, verbose)
-	reducedBins, reducedHist = extractRowsValues(join(thesauriDir, fileName + reducedFileSuffix), LIMITS, [XBASE, YBASE], step, verbose)
+	hasFiltered = isfile(join(thesauriDir, fileName + reducedFileSuffix))
+	bins, hist = extractRowsValues(join(thesauriDir, fileName + (reducedFileSuffix if not hasFiltered else '')), \
+		LIMITS, [XBASE, YBASE], step, verbose)
+	if hasFiltered:
+		reducedBins, reducedHist = extractRowsValues(join(thesauriDir, fileName + reducedFileSuffix), \
+			LIMITS, [XBASE, YBASE], step, verbose)
 	
 	## figure set up
 	f, (sims) = pl.subplots()
@@ -568,12 +638,14 @@ def createSimilarityHistogram(label, fileName, thesauriDir, graphsDir, verbose=F
 	## REPRESENT THE DATA
 	## bar chart
 	noThreshold = sims.bar(bins[:-1], hist, width=bins[1:] - bins[:-1], color="orange", label="No threshold")
-	withThreshold = sims.bar(reducedBins[:-1], reducedHist, width=reducedBins[1:] - bins[:-1], color="red", label="With threshold")
-	decorateGraph(sims, 'Norm scale', "similarity score", "frequency", yLabelPos, "upper right", largeY=True)
+	if hasFiltered:
+		withThreshold = sims.bar(reducedBins[:-1], reducedHist, width=reducedBins[1:] - bins[:-1], color="red", label="With threshold")
+	decorateGraph(sims, 'LInear scale', "similarity score", "frequency", yLabelPos, "upper right" if hasFiltered else None, largeY=True)
 
 	f.savefig(join(graphsDir, 'Histogram-' + fileName + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 	
 
 ## Creates bins of width "step" using all of the values from the specified file that are relevant for the corresponding histogram
@@ -781,7 +853,8 @@ def createPlotInputVsFiles(statsDictionary, outputDir, graphName="", verbose=Fal
 		for i, f in enumerate([p[0] for p in individualPlots]):
 			f.savefig(join(outputDir, "graphs", 'Input-vs-files-' + graphName + '-' + str(i+1) + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 
 
 ## Creates plots showing the relation between the input file size and the run time of Byblo 
@@ -810,48 +883,56 @@ def createPlotInputVsTime(statsDictionary, outputDirectory, graphName="", verbos
 	numberEvents = statsDictionary["Total_Number_Of_Distinct_Events"]
 	events.plot(numberEvents, times, color='aquamarine', label="run time function of events", marker='o', linestyle='None')
 	
-	## FIT THE DATA
-	quadratic = lambda p, x: p[0] * (p[3]*x)**2 + p[1] * p[3]*x + p[2]
-	nlogn = lambda p, x: p[0] * (p[3]*x * log(p[3]*x)) + p[1] * p[3]*x + p[2]
+	## FIT THE DATA (if enough values)
+	if len(times) > 3:
+		quadratic = lambda p, x: p[0] * (p[3]*x)**2 + p[1] * p[3]*x + p[2]
+		nlogn = lambda p, x: p[0] * (p[3]*x * log(p[3]*x)) + p[1] * p[3]*x + p[2]
+		
+		## entries >> method 7 to fit a quadratic shape
+		pInit = [1., 1., 1., 1./max(numberEntries)] # inital guess
+		mFit, mLabel, mParams1= fittingMethod(numberEntries, times, 7, pInit, verbose)
+		entries.plot(numberEntries, mFit, label=mLabel, color='firebrick', linestyle='dashed')
+		nMin, nMax = min(numberEntries), max(numberEntries)
+		steps = np.arange(nMin, nMax, (nMax-nMin)/100.) ## for a smoother model
+		entries.plot(steps, quadratic(mParams1, steps), label="smoothed model", color='red')
+		
+		## events >> method 8 to fit an "n log n" shape
+		pInit = [1., 1., 1., 1./max(numberEvents)] # inital guess
+		mFit, mLabel, mParams2= fittingMethod(numberEvents, times, 8, pInit, verbose) # expected curve
+		events.plot(numberEvents, mFit, label=mLabel, color='firebrick', linestyle='dashed')
+		nMin, nMax = min(numberEvents), max(numberEvents)
+		steps = np.arange(nMin, nMax, (nMax-nMin)/100.) # and also a smoother curve
+		events.plot(steps, nlogn(mParams2, steps), label="smoothed model", color='red')
 	
-	## entries >> method 7 to fit a quadratic shape
-	pInit = [1., 1., 1., 1./max(numberEntries)] # inital guess
-	mFit, mLabel, mParams1= fittingMethod(numberEntries, times, 7, pInit)
-	entries.plot(numberEntries, mFit, label=mLabel, color='firebrick', linestyle='dashed')
-	nMin, nMax = min(numberEntries), max(numberEntries)
-	steps = np.arange(nMin, nMax, (nMax-nMin)/100.) ## for a smoother model
-	entries.plot(steps, quadratic(mParams1, steps), label="smoothed model", color='red')
-	
-	## events >> method 8 to fit an "n log n" shape
-	pInit = [1., 1., 1., 1./max(numberEvents)] # inital guess
-	mFit, mLabel, mParams2= fittingMethod(numberEvents, times, 8, pInit) # expected curve
-	events.plot(numberEvents, mFit, label=mLabel, color='firebrick', linestyle='dashed')
-	nMin, nMax = min(numberEvents), max(numberEvents)
-	steps = np.arange(nMin, nMax, (nMax-nMin)/100.) # and also a smoother curve
-	events.plot(steps, nlogn(mParams2, steps), label="smoothed model", color='red')
-	
+		## DISPLAY APPROXIMATIONS
+		## entries
+		a, b, c, ratio = mParams1
+		infoString = "Run time approximation:\nt(n) = " \
+			+ "%.3f" % (a)  + " x N**2 + " +  "%.3f" % (b)  + " x N + " + "%.3f" % (c) \
+			+ "\nwith N = n x " + "%.5e" % (ratio)
+		entries.text(0.4, 0.85, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = entries.transAxes, fontsize=10, color="dimGrey")
+			
+		## events
+		a, b, c, ratio = mParams2
+		infoString = "Run time approximation from events:" \
+			+ "\nt(n) = " + "%.3f" % (a) + " x N log(N) + " + "%.3f" % (b) + " x N + " + "%.3f" % (c) \
+			+ "\nwith N = n x " + "%.5e" % (ratio)
+		events.text(0.4, 0.85, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = events.transAxes, fontsize=10, color="dimGrey")
+	else:
+		infoString = "(At least 4 values required to fit a model.)" 
+		entries.text(0.7, 0.1, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = entries.transAxes, fontsize=10, color="firebrick")
+		events.text(0.7, 0.1, infoString, horizontalalignment='center', verticalalignment='center', \
+			transform = events.transAxes, fontsize=10, color="firebrick")
+		
+		
 	decorateGraph(entries, "Run time based on entries", "number of distinct entries", "time ("+timeUnit+")", yLabelPos, \
 		"lower right", largeX=True, largeY=True)
 	decorateGraph(events, "Run time based on events", "number of distinct observed events", "time ("+timeUnit+")", yLabelPos, \
 		"lower right", largeX=True, largeY=True)
-	
-	## DISPLAY APPROXIMATIONS
-	## entries
-	a, b, c, ratio = mParams1
-	infoString = "Run time approximation:\nt(n) = " \
-		+ "%.3f" % (a)  + " x N**2 + " +  "%.3f" % (b)  + " x N + " + "%.3f" % (c) \
-		+ "\nwith N = n x " + "%.5e" % (ratio)
-	entries.text(0.4, 0.85, infoString, horizontalalignment='center', verticalalignment='center', \
-		transform = entries.transAxes, fontsize=10, color="dimGrey")
 		
-	## events
-	a, b, c, ratio = mParams2
-	infoString = "Run time approximation from events:" \
-		+ "\nt(n) = " + "%.3f" % (a) + " x N log(N) + " + "%.3f" % (b) + " x N + " + "%.3f" % (c) \
-		+ "\nwith N = n x " + "%.5e" % (ratio)
-	events.text(0.4, 0.85, infoString, horizontalalignment='center', verticalalignment='center', \
-		transform = events.transAxes, fontsize=10, color="dimGrey")
-	
 	## save figure
 	if not cut:
 		f.savefig(join(outputDir, "graphs", 'Input-vs-time-' + graphName + '.pdf'))
@@ -859,7 +940,8 @@ def createPlotInputVsTime(statsDictionary, outputDirectory, graphName="", verbos
 		for i, f in enumerate([p[0] for p in individualPlots]):
 			f.savefig(join(outputDir, "graphs", 'Input-vs-time-' + graphName + '-' + str(i+1) + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 
 
 ## Creates plots showing the relation between the parameters used and the result files obtained by running Byblo (size and # of lines)
@@ -912,7 +994,8 @@ def createPlotParametersVsFiles(paramList, statsDictionary, outputDirectory, gra
 		for i, f in enumerate([p[0] for p in individualPlots]):
 			f.savefig(join(outputDir, "graphs", 'Parameters-vs-files-' + graphName + '-' + str(i+1) + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 
 
 ## Creates a plot showing the relation between the parameters used and the run time of Byblo
@@ -931,8 +1014,8 @@ def createPlotParametersVsTime(paramList, statsDictionary, outputDirectory, grap
 	times,  timeUnit = convertTimeRange(statsDictionary["Byblo_Run_Time"])
 	time.bar(ind+width, times, width=width, align='center', color='aquamarine', label="run time on parameters")
 		
-	decorateGraph(time, "Run time based on Byblo parameters", "parameter string for Byblo", "number of lines", \
-		yLabelPos, "upper left", largeY=True)
+	decorateGraph(time, "Run time based on Byblo parameters", "parameter string for Byblo", "time ("+timeUnit+")", \
+		yLabelPos, largeY=True)
 	
 	time.set_xticks(ind+len(paramList)*width*0.5)
 	time.set_xticklabels(paramList, rotation=15, size='small')
@@ -940,7 +1023,8 @@ def createPlotParametersVsTime(paramList, statsDictionary, outputDirectory, grap
 	## save figure
 	f.savefig(join(outputDir, "graphs", 'Parameters-vs-time-' + graphName + '.pdf'))
 	pl.close()
-	print ""
+	if verbose:
+		print ""
 
 
 ## Converts a list of file sizes to a target unit (bytes system), either specified or determined based on the average size
@@ -1012,8 +1096,7 @@ def deleteOnExit(deleteList, outputDirectory, sampleFiles=[], originalInputFile=
 	print ">> end:deleteOnExit"
 
 
-##
-##
+## Prints an array or a dictionary with customizable start, end, line length and title
 def print_lines(list, min=0, max=0, line_max=0, title="List"):
 	if max == 0:
 		max = len(list)
@@ -1035,9 +1118,10 @@ def print_lines(list, min=0, max=0, line_max=0, title="List"):
 	print ""
 
 
+
 if __name__=='__main__':
 	
-	#########################################################################
+	## PARSE COMMAND LINE
 	parser = argparse.ArgumentParser(description='Generate statistics for Byblo.')
 
 	# data file name
@@ -1087,9 +1171,8 @@ if __name__=='__main__':
 		const=True, default=False,
 		help='cut graphs so that all subgraphs are in distinct files (default: False)')
 	
+	## PROCESS PARAMETERS
 	args = parser.parse_args()
-	#########################################################################
-	## process parameters
 	inputFile = args.data[0]
 	
 	pctList = sort([p for p in args.p if p > 0 and p<=100] if args.p != None else [100])
@@ -1102,8 +1185,6 @@ if __name__=='__main__':
 		if args.delete != None else []
 	reuseList = (set(args.reuse) if args.reuse != [] else ['samples', 'events_stats', 'byblo_stats', 'graphs']) \
 		if args.reuse != None else []
-	print "cut?", args.cut
-	
 	
 	## start operations
 	stime = datetime.datetime.now()
@@ -1113,7 +1194,7 @@ if __name__=='__main__':
 	
 	## BYBLO HELP for parameters
 	if args.bybloHelp:
-		displayBybloHelp(bybloDir, paramList, args.verbose)
+		paramList = displayBybloHelp(bybloDir, paramList, args.verbose)
 	
 	## EVENTS STATS + SAMPLES
 	sampleFileNames, statsFileNames = eventsStats(inputFile, outputDir, pctList, reuseList, args.verbose)
@@ -1139,5 +1220,3 @@ if __name__=='__main__':
 	
 	etime = datetime.datetime.now()
 	print "\n>Execution took", etime-stime, "hours"
-
-	    
